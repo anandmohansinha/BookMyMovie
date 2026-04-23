@@ -1,0 +1,27 @@
+spring:
+  application:
+    name: book-my-movie
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/movie_booking}
+    username: ${DB_USERNAME:postgres}
+    password: ${DB_PASSWORD:postgres}
+    driver-class-name: org.postgresql.Driver
+  jpa:
+    hibernate:
+      ddl-auto: update
+    open-in-view: false
+    properties:
+      hibernate:
+        format_sql: true
+    show-sql: false
+
+server:
+  port: 8080
+
+logging:
+  level:
+    com.example.movieticketbooking: INFO
+
+app:
+  seed:
+    enabled: true
