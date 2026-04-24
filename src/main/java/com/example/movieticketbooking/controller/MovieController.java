@@ -3,6 +3,8 @@ package com.example.movieticketbooking.controller;
 import com.example.movieticketbooking.dto.movie.MovieCreateRequest;
 import com.example.movieticketbooking.dto.movie.MovieResponse;
 import com.example.movieticketbooking.service.MovieService;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -16,6 +18,7 @@ import java.util.List;
 
 @RestController
 @RequestMapping("/api/movies")
+@Tag(name = "Movies", description = "Create and list movies")
 public class MovieController {
 
     private final MovieService movieService;

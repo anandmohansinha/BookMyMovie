@@ -1,12 +1,26 @@
 spring:
   application:
     name: book-my-movie
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+      timeout: ${REDIS_TIMEOUT:2s}
+      repositories:
+        enabled: false
+  kafka:
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:localhost:9092}
+    producer:
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
   datasource:
-    url: ${DB_URL:jdbc:postgresql://localhost:5432/movie_booking}
-    username: ${DB_USERNAME:postgres}
-    password: ${DB_PASSWORD:postgres}
-    driver-class-name: org.postgresql.Driver
+    url: ${DB_URL:jdbc:mysql://localhost:3306/book_my_movie?createDatabaseIfNotExist=true&useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC}
+    username: ${DB_USERNAME:root}
+    password: ${DB_PASSWORD:test}
+    driver-class-name: com.mysql.cj.jdbc.Driver
   jpa:
+    database-platform: org.hibernate.dialect.MySQLDialect
     hibernate:
       ddl-auto: update
     open-in-view: false
@@ -19,9 +33,45 @@ server:
   port: 8080
 
 logging:
+  include-application-name: false
   level:
     com.example.movieticketbooking: INFO
 
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
+    operations-sorter: method
+    tags-sorter: alpha
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus,loggers
+  endpoint:
+    health:
+      show-details: always
+    metrics:
+      enabled: true
+    prometheus:
+      enabled: true
+  tracing:
+    enabled: ${TRACING_ENABLED:true}
+    sampling:
+      probability: ${TRACING_SAMPLING_PROBABILITY:1.0}
+  zipkin:
+    tracing:
+      endpoint: ${ZIPKIN_ENDPOINT:http://localhost:9411/api/v2/spans}
+
 app:
   seed:
-    enabled: true
+    enabled: ${APP_SEED_ENABLED:true}
+  booking:
+    lock-duration-minutes: ${BOOKING_LOCK_DURATION_MINUTES:5}
+    convenience-fee-per-seat: ${BOOKING_CONVENIENCE_FEE_PER_SEAT:30}
+    lock-cleanup-cron: ${BOOKING_LOCK_CLEANUP_CRON:0 */1 * * * *}
+  integration:
+    redis-lock-cache-enabled: ${REDIS_LOCK_CACHE_ENABLED:true}
+    kafka-booking-events-enabled: ${KAFKA_BOOKING_EVENTS_ENABLED:true}
+    redis-key-prefix: ${REDIS_KEY_PREFIX:bookmymovie}
+    booking-created-topic: ${KAFKA_BOOKING_CREATED_TOPIC:booking-created-events}

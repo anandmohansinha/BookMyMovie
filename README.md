@@ -1,28 +1,18 @@
-# BookMyMovie - Phase 1
+# BookMyMovie
 
-Spring Boot 3 / Java 17 backend for a movie ticket booking platform focused on master data and browse flow only.
+Spring Boot backend for a movie ticket booking platform.
 
-## Features
+This codebase is now trimmed to keep only these implemented scenarios:
 
-- Create and list cities
-- Create and list theatres with nested screens and seats
-- Create and list movies
-- Create shows
-- Browse theatres and show timings by movie, city, and date
-- Validation, layered architecture, centralized exception handling, logging, and sample seed data
-- Business rules:
-  - only active movies can be scheduled
-  - no overlapping shows on the same screen for the same date
+- Read scenario: browse theatres currently running a selected movie in a selected city on a selected date, including show timings
+- Write scenario: book movie tickets by selecting a show and preferred seats for the day
 
-## Tech Stack
+The extra optional scenarios were removed from the active code/documentation:
 
-- Java 17
-- Spring Boot
-- Spring Web
-- Spring Data JPA
-- PostgreSQL
-- Maven
-- H2 for tests
+- theatre-side update/delete show workflow for the day
+- bulk booking and bulk cancellation
+- manual theatre seat inventory allocation/update for a show
+- payment workflow and customer booking-history APIs
 
 ## Project Structure
 
@@ -31,152 +21,243 @@ src/main/java/com/example/movieticketbooking
 |- config
 |- controller
 |- dto
+|  |- browse
+|  |- request
+|  |- response
+|  |- show
 |- entity
 |- enums
 |- exception
+|- mapper
 |- repository
+|- scheduler
 |- service
+|  |- impl
+|- util
 ```
 
-## Database Setup
+The project keeps the same functional behavior, but the structure is intentionally kept lean:
 
-1. Create a PostgreSQL database:
+- one Spring Boot application class enables scheduling and configuration properties
+- services contain the main business rules
+- DTOs are used only for API contracts
+- Redis, Kafka, Prometheus/tracing, and custom logging remain enabled
 
-```sql
-CREATE DATABASE movie_booking;
+## Technology Stack
+
+- Java 17
+- Spring Boot 3.3.5
+- Spring Web
+- Spring Data JPA / Hibernate
+- MySQL
+- Redis for temporary lock cache
+- Kafka for booking-created events
+- Spring Boot Actuator / Micrometer
+- Prometheus metrics
+- Micrometer Tracing with Zipkin export
+- Maven
+- H2 for tests
+- Swagger UI / OpenAPI
+
+## Kept Functional Scope
+
+### Read scenario
+
+Browse theatres currently running the selected movie in the selected city on the selected date.
+
+API:
+
+```text
+GET /api/browse/shows?movieId={movieId}&cityId={cityId}&showDate={yyyy-MM-dd}
 ```
 
-2. Configure environment variables if you do not want the defaults:
+Response includes:
+
+- theatres in that city running the movie
+- show timings
+- screen name
+
+### Write scenario
+
+Book movie tickets by selecting preferred seats for a show.
+
+Kept APIs:
+
+```text
+GET  /api/shows/{showId}/seats
+POST /api/bookings/lock-seats
+POST /api/bookings
+GET  /api/bookings/{bookingId}
+```
+
+Flow:
+
+1. Browse shows by city, movie, and date
+2. Get seat layout for a selected show
+3. Lock preferred seats temporarily
+4. Create booking from the valid lock reference
+5. Seats become `BOOKED`
+
+## Booking Design
+
+### Show-level inventory
+
+Each show has independent seat inventory in `show_seat_inventory`.
+
+Statuses:
+
+- `AVAILABLE`
+- `LOCKED`
+- `BOOKED`
+- `BLOCKED`
+
+### Double-booking prevention
+
+Seat locking is concurrency-safe.
+
+- Requested seats are updated from `AVAILABLE` to `LOCKED` in one transaction
+- The update only succeeds for seats still available at that exact moment
+- If the updated row count is less than the requested seat count, the request fails
+- This prevents two users from locking the same seat at the same time
+
+### Lock expiry
+
+Temporary locks are auto-released by the scheduler if the booking is not completed in time.
+
+### Redis integration
+
+Redis is now applied as a temporary lock cache with TTL.
+
+- after a successful DB seat lock, the lock reference is cached in Redis
+- seat-level Redis keys are created per show seat with the same expiry
+- when a booking is created or a stale lock is released, those Redis keys are removed
+- the relational DB remains the source of truth, so booking still stays correct even if Redis is unavailable
+
+### Kafka integration
+
+Kafka is now applied for asynchronous booking events.
+
+- after a booking is created, a `booking-created` event is published
+- the event contains booking, customer, show, theatre, and seat details
+- this is designed for future notification, analytics, or downstream consumers
+- Kafka publishing is best-effort and does not block the booking response
+
+## Observability
+
+### Structured logging
+
+Structured key-value console logging is configured in [logback-spring.xml](/F:/2026_1/BookMyMovie/src/main/resources/logback-spring.xml).
+
+Each log line includes:
+
+- timestamp
+- level
+- application name
+- correlation ID
+- trace ID
+- span ID
+- thread
+- logger
+- message
+
+### Correlation IDs with MDC
+
+[CorrelationIdFilter.java](/F:/2026_1/BookMyMovie/src/main/java/com/example/movieticketbooking/config/CorrelationIdFilter.java) reads `X-Correlation-Id` from the request or generates one if missing, stores it in MDC, and echoes it back in the response.
+
+This makes request logs easier to trace across controllers and services.
+
+### Metrics and Prometheus
+
+[MetricsConfig.java](/F:/2026_1/BookMyMovie/src/main/java/com/example/movieticketbooking/config/MetricsConfig.java) adds common Micrometer tags.
+
+Booking flow metrics are recorded in [BookingServiceImpl.java](/F:/2026_1/BookMyMovie/src/main/java/com/example/movieticketbooking/service/impl/BookingServiceImpl.java), including:
+
+- seat lock attempts, successes, failures, and duration
+- booking creation attempts, successes, failures, and duration
+
+[PrometheusEndpointConfig.java](/F:/2026_1/BookMyMovie/src/main/java/com/example/movieticketbooking/config/PrometheusEndpointConfig.java) registers the Prometheus scrape endpoint.
+
+Prometheus endpoint:
+
+- [http://localhost:8080/actuator/prometheus](http://localhost:8080/actuator/prometheus)
+
+### Distributed tracing
+
+Micrometer tracing is enabled and exports spans to Zipkin when available.
+
+Relevant properties in [application.yml](/F:/2026_1/BookMyMovie/src/main/resources/application.yml):
+
+- `management.tracing.enabled`
+- `management.tracing.sampling.probability`
+- `management.zipkin.tracing.endpoint`
+
+Trace and span IDs are automatically included in logs.
+
+Configurable properties:
+
+- `BOOKING_LOCK_DURATION_MINUTES`
+- `BOOKING_CONVENIENCE_FEE_PER_SEAT`
+- `BOOKING_LOCK_CLEANUP_CRON`
+
+## Main Entities
+
+- `City`
+- `Theatre`
+- `Screen`
+- `Seat`
+- `Movie`
+- `Show`
+- `Customer`
+- `ShowSeatInventory`
+- `Booking`
+- `BookingSeat`
+
+## Configuration
+
+Default config is in [application.yml](/F:/2026_1/BookMyMovie/src/main/resources/application.yml).
+
+Example PowerShell setup:
 
 ```powershell
-$env:DB_URL="jdbc:postgresql://localhost:5432/movie_booking"
-$env:DB_USERNAME="postgres"
-$env:DB_PASSWORD="postgres"
+$env:DB_URL="jdbc:mysql://localhost:3306/book_my_movie?createDatabaseIfNotExist=true&useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC"
+$env:DB_USERNAME="root"
+$env:DB_PASSWORD="root"
+$env:BOOKING_LOCK_DURATION_MINUTES="5"
+$env:BOOKING_CONVENIENCE_FEE_PER_SEAT="30"
+$env:REDIS_HOST="localhost"
+$env:REDIS_PORT="6379"
+$env:KAFKA_BOOTSTRAP_SERVERS="localhost:9092"
+$env:TRACING_ENABLED="true"
+$env:TRACING_SAMPLING_PROBABILITY="1.0"
+$env:ZIPKIN_ENDPOINT="http://localhost:9411/api/v2/spans"
 ```
-
-Default values are already present in `src/main/resources/application.yml`.
 
 ## Run Instructions
 
-1. Build the project:
+1. Start MySQL.
+2. Build:
 
 ```bash
 mvn clean install
 ```
 
-2. Run the application:
+3. Run:
 
 ```bash
 mvn spring-boot:run
 ```
 
-3. The API will be available at:
+Swagger:
 
-```text
-http://localhost:8080
-```
+- [http://localhost:8080/swagger-ui.html](http://localhost:8080/swagger-ui.html)
+- [http://localhost:8080/v3/api-docs](http://localhost:8080/v3/api-docs)
+- [http://localhost:8080/actuator/health](http://localhost:8080/actuator/health)
+- [http://localhost:8080/actuator/metrics](http://localhost:8080/actuator/metrics)
+- [http://localhost:8080/actuator/prometheus](http://localhost:8080/actuator/prometheus)
 
-Sample seed data is loaded automatically when the database is empty. Disable it with:
+## APIs and Curl Examples
 
-```powershell
-$env:APP_SEED_ENABLED="false"
-```
-
-## Test Instructions
-
-Run all tests:
-
-```bash
-mvn test
-```
-
-Tests use H2 in-memory database with the `test` profile from `src/test/resources/application-test.yml`.
-
-## REST APIs
-
-### 1. Create City
-
-```bash
-curl -X POST http://localhost:8080/api/cities \
-  -H "Content-Type: application/json" \
-  -d '{
-    "name": "Pune",
-    "state": "Maharashtra",
-    "country": "India"
-  }'
-```
-
-### 2. List Cities
-
-```bash
-curl http://localhost:8080/api/cities
-```
-
-### 3. Create Theatre
-
-```bash
-curl -X POST http://localhost:8080/api/theatres \
-  -H "Content-Type: application/json" \
-  -d '{
-    "cityId": 1,
-    "name": "City Center Cinemas",
-    "address": "MG Road, Pune",
-    "screens": [
-      {
-        "name": "Screen 1",
-        "seats": [
-          { "rowLabel": "A", "seatNumber": 1, "seatType": "REGULAR" },
-          { "rowLabel": "A", "seatNumber": 2, "seatType": "REGULAR" },
-          { "rowLabel": "B", "seatNumber": 1, "seatType": "PREMIUM" }
-        ]
-      },
-      {
-        "name": "Screen 2",
-        "seats": [
-          { "rowLabel": "A", "seatNumber": 1, "seatType": "REGULAR" },
-          { "rowLabel": "A", "seatNumber": 2, "seatType": "RECLINER" }
-        ]
-      }
-    ]
-  }'
-```
-
-### 4. List Theatres
-
-```bash
-curl http://localhost:8080/api/theatres
-```
-
-Filter by city:
-
-```bash
-curl "http://localhost:8080/api/theatres?cityId=1"
-```
-
-### 5. Create Movie
-
-```bash
-curl -X POST http://localhost:8080/api/movies \
-  -H "Content-Type: application/json" \
-  -d '{
-    "title": "Neon Run",
-    "language": "English",
-    "genre": "Action",
-    "durationMinutes": 135,
-    "certification": "UA",
-    "description": "A courier gets pulled into a city-wide conspiracy overnight.",
-    "releaseDate": "2026-04-20",
-    "status": "ACTIVE"
-  }'
-```
-
-### 6. List Movies
-
-```bash
-curl http://localhost:8080/api/movies
-```
-
-### 7. Create Show
+### Create Show
 
 ```bash
 curl -X POST http://localhost:8080/api/shows \
@@ -191,14 +272,89 @@ curl -X POST http://localhost:8080/api/shows \
   }'
 ```
 
-### 8. Browse Theatres and Show Timings
+When a show is created, seat inventory rows are automatically generated for that show.
+
+### Browse Theatres and Show Timings
 
 ```bash
 curl "http://localhost:8080/api/browse/shows?movieId=1&cityId=1&showDate=2026-04-26"
 ```
 
-## Notes
+### View Seat Layout for a Show
 
-- This phase does not include booking, payment, seat locking, coupons, or offers.
-- `POST /api/theatres` is designed to create master data for theatre, screens, and seats in one request.
-- Show overlap is blocked when a new show starts before an existing show ends and ends after an existing show starts.
+```bash
+curl http://localhost:8080/api/shows/1/seats
+```
+
+### Lock Seats
+
+```bash
+curl -X POST http://localhost:8080/api/bookings/lock-seats \
+  -H "Content-Type: application/json" \
+  -d '{
+    "showId": 1,
+    "seatNumbers": ["A1", "A2"],
+    "customer": {
+      "name": "Anand",
+      "email": "anand@example.com",
+      "phone": "9999999999"
+    }
+  }'
+```
+
+### Create Booking
+
+```bash
+curl -X POST http://localhost:8080/api/bookings \
+  -H "Content-Type: application/json" \
+  -d '{
+    "lockReference": "LCK-20260424120000-ABCD1234",
+    "customer": {
+      "name": "Anand",
+      "email": "anand@example.com",
+      "phone": "9999999999"
+    }
+  }'
+```
+
+### Get Booking Details
+
+```bash
+curl http://localhost:8080/api/bookings/1
+```
+
+## Tests
+
+Run:
+
+```bash
+mvn test
+```
+
+Current automated coverage includes:
+
+- browse scenario
+- show seat layout
+- successful seat lock
+- failed seat lock when seat is already locked
+- booking creation from lock reference
+- expired lock rejection
+- lock cleanup job
+- concurrent same-seat lock conflict where only one request succeeds
+- Prometheus scrape endpoint exposure
+- correlation ID echo handling
+
+## Key Files
+
+- [BrowseController.java](/F:/2026_1/BookMyMovie/src/main/java/com/example/movieticketbooking/controller/BrowseController.java)
+- [ShowController.java](/F:/2026_1/BookMyMovie/src/main/java/com/example/movieticketbooking/controller/ShowController.java)
+- [BookingController.java](/F:/2026_1/BookMyMovie/src/main/java/com/example/movieticketbooking/controller/BookingController.java)
+- [BookingServiceImpl.java](/F:/2026_1/BookMyMovie/src/main/java/com/example/movieticketbooking/service/impl/BookingServiceImpl.java)
+- [BrowseServiceImpl.java](/F:/2026_1/BookMyMovie/src/main/java/com/example/movieticketbooking/service/impl/BrowseServiceImpl.java)
+- [RedisSeatLockCacheService.java](/F:/2026_1/BookMyMovie/src/main/java/com/example/movieticketbooking/service/impl/RedisSeatLockCacheService.java)
+- [KafkaBookingEventPublisher.java](/F:/2026_1/BookMyMovie/src/main/java/com/example/movieticketbooking/service/impl/KafkaBookingEventPublisher.java)
+- [CorrelationIdFilter.java](/F:/2026_1/BookMyMovie/src/main/java/com/example/movieticketbooking/config/CorrelationIdFilter.java)
+- [MetricsConfig.java](/F:/2026_1/BookMyMovie/src/main/java/com/example/movieticketbooking/config/MetricsConfig.java)
+- [PrometheusEndpointConfig.java](/F:/2026_1/BookMyMovie/src/main/java/com/example/movieticketbooking/config/PrometheusEndpointConfig.java)
+- [LockExpiryScheduler.java](/F:/2026_1/BookMyMovie/src/main/java/com/example/movieticketbooking/scheduler/LockExpiryScheduler.java)
+- [MovieTicketBookingIntegrationTest.java](/F:/2026_1/BookMyMovie/src/test/java/com/example/movieticketbooking/controller/MovieTicketBookingIntegrationTest.java)

@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+    <springProperty scope="context" name="appName" source="spring.application.name" defaultValue="book-my-movie"/>
+
+    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>ts=%d{yyyy-MM-dd'T'HH:mm:ss.SSSXXX} level=%-5level app=%property{appName} corr=%X{correlationId:-na} trace=%X{traceId:-na} span=%X{spanId:-na} thread=%thread logger=%logger{36} msg="%replace(%msg){'"','\"'}"%n%ex</pattern>
+        </encoder>
+    </appender>
+
+    <root level="INFO">
+        <appender-ref ref="CONSOLE"/>
+    </root>
+</configuration>

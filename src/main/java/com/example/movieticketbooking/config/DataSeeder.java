@@ -5,12 +5,15 @@ import com.example.movieticketbooking.entity.Movie;
 import com.example.movieticketbooking.entity.Screen;
 import com.example.movieticketbooking.entity.Seat;
 import com.example.movieticketbooking.entity.Show;
+import com.example.movieticketbooking.entity.ShowSeatInventory;
 import com.example.movieticketbooking.entity.Theatre;
 import com.example.movieticketbooking.enums.MovieStatus;
 import com.example.movieticketbooking.enums.SeatType;
+import com.example.movieticketbooking.enums.ShowSeatStatus;
 import com.example.movieticketbooking.repository.CityRepository;
 import com.example.movieticketbooking.repository.MovieRepository;
 import com.example.movieticketbooking.repository.ShowRepository;
+import com.example.movieticketbooking.repository.ShowSeatInventoryRepository;
 import com.example.movieticketbooking.repository.TheatreRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -34,7 +37,8 @@ public class DataSeeder {
             CityRepository cityRepository,
             TheatreRepository theatreRepository,
             MovieRepository movieRepository,
-            ShowRepository showRepository
+            ShowRepository showRepository,
+            ShowSeatInventoryRepository showSeatInventoryRepository
     ) {
         return args -> {
             if (cityRepository.count() > 0 || movieRepository.count() > 0 || showRepository.count() > 0) {
@@ -96,10 +100,10 @@ public class DataSeeder {
             Screen forumScreen1 = getScreenByName(forum, "Audi 1");
             Screen inoxScreen = getScreenByName(inox, "Screen Gold");
 
-            showRepository.save(createShow(activeMovie, orionScreen1, tomorrow, "10:00", "12:25", "250.00"));
-            showRepository.save(createShow(activeMovie, orionScreen2, tomorrow, "13:15", "15:40", "280.00"));
-            showRepository.save(createShow(activeMovie, forumScreen1, tomorrow, "18:30", "20:55", "300.00"));
-            showRepository.save(createShow(familyMovie, inoxScreen, dayAfterTomorrow, "11:00", "13:05", "220.00"));
+            createShowWithInventory(showRepository, showSeatInventoryRepository, activeMovie, orionScreen1, tomorrow, "10:00", "12:25", "250.00");
+            createShowWithInventory(showRepository, showSeatInventoryRepository, activeMovie, orionScreen2, tomorrow, "13:15", "15:40", "280.00");
+            createShowWithInventory(showRepository, showSeatInventoryRepository, activeMovie, forumScreen1, tomorrow, "18:30", "20:55", "300.00");
+            createShowWithInventory(showRepository, showSeatInventoryRepository, familyMovie, inoxScreen, dayAfterTomorrow, "11:00", "13:05", "220.00");
 
             log.info("Sample seed data created successfully");
         };
@@ -179,6 +183,29 @@ public class DataSeeder {
         show.setStartTime(LocalTime.parse(start));
         show.setEndTime(LocalTime.parse(end));
         show.setTicketPrice(new BigDecimal(price));
+        show.setActive(Boolean.TRUE);
         return show;
+    }
+
+    private void createShowWithInventory(
+            ShowRepository showRepository,
+            ShowSeatInventoryRepository showSeatInventoryRepository,
+            Movie movie,
+            Screen screen,
+            LocalDate date,
+            String start,
+            String end,
+            String price
+    ) {
+        Show show = showRepository.save(createShow(movie, screen, date, start, end, price));
+        showSeatInventoryRepository.saveAll(screen.getSeats().stream()
+                .map(seat -> {
+                    ShowSeatInventory inventory = new ShowSeatInventory();
+                    inventory.setShow(show);
+                    inventory.setSeat(seat);
+                    inventory.setStatus(ShowSeatStatus.AVAILABLE);
+                    return inventory;
+                })
+                .toList());
     }
 }

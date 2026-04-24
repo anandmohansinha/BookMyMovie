@@ -1,6 +1,7 @@
 package com.example.movieticketbooking.entity;
 
 import jakarta.persistence.Column;
+import jakarta.persistence.CascadeType;
 import jakarta.persistence.Entity;
 import jakarta.persistence.FetchType;
 import jakarta.persistence.GeneratedValue;
@@ -8,15 +9,18 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
+import jakarta.persistence.OneToMany;
 import jakarta.persistence.Table;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalTime;
+import java.util.ArrayList;
+import java.util.List;
 
 @Entity
 @Table(name = "shows")
-public class Show {
+public class Show extends BaseAuditEntity {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -41,6 +45,15 @@ public class Show {
 
     @Column(nullable = false, precision = 10, scale = 2)
     private BigDecimal ticketPrice;
+
+    @Column(nullable = false)
+    private Boolean active = true;
+
+    @OneToMany(mappedBy = "show", cascade = CascadeType.ALL, orphanRemoval = true)
+    private List<ShowSeatInventory> inventories = new ArrayList<>();
+
+    @OneToMany(mappedBy = "show")
+    private List<Booking> bookings = new ArrayList<>();
 
     public Long getId() {
         return id;
@@ -96,5 +109,29 @@ public class Show {
 
     public void setTicketPrice(BigDecimal ticketPrice) {
         this.ticketPrice = ticketPrice;
+    }
+
+    public Boolean getActive() {
+        return active;
+    }
+
+    public void setActive(Boolean active) {
+        this.active = active;
+    }
+
+    public List<ShowSeatInventory> getInventories() {
+        return inventories;
+    }
+
+    public void setInventories(List<ShowSeatInventory> inventories) {
+        this.inventories = inventories;
+    }
+
+    public List<Booking> getBookings() {
+        return bookings;
+    }
+
+    public void setBookings(List<Booking> bookings) {
+        this.bookings = bookings;
     }
 }
